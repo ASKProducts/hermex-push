@@ -1,4 +1,4 @@
-"""The plugin entry point, the pairing and restart routes, the pinned install identifier and the
+"""The plugin entry point, the capabilities, pairing and restart routes, the pinned install identifier and the
 version."""
 import importlib.util
 import json
@@ -92,6 +92,19 @@ def test_pairing_route_returns_keys_only_with_a_relay_url(hermes_home, monkeypat
     import base64
     assert len(base64.b64decode(body["preview_key"])) == 32
     assert client.get("/api/plugins/hermex-push/pairing").json() == body
+
+
+def test_capabilities_lists_the_mounted_routes_without_touching_the_keys(hermes_home):
+    api = _load(ROOT / "dashboard" / "plugin_api.py", "hermex_push_capabilities_under_test")
+    app = FastAPI()
+    app.include_router(api.router, prefix="/api/plugins/hermex-push")
+
+    response = TestClient(app).get("/api/plugins/hermex-push/capabilities")
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    body = response.json()
+    assert body["plugin_version"] == PLUGIN_VERSION
+    assert {"GET /capabilities", "GET /pairing", "POST /restart"} <= set(body["routes"])
+    assert not (hermes_home / "plugin-data").exists(), "Reading capabilities must not create pairing keys"
 
 
 def _restart_api(monkeypatch, calls):

@@ -112,6 +112,16 @@ behind a paired device. They live outside the plugin's install directory so `her
 update`, a forced reinstall or `remove` cannot unpair a phone; keys from the first release's
 location inside the install directory are migrated on first use. The route answers 409 while `HERMEX_PUSH_RELAY_URL` is unset.
 
+## Capabilities
+
+`GET /api/plugins/hermex-push/capabilities` (dashboard auth, plugin 0.5.0 and later) returns
+`{"plugin_version": "<semver>", "routes": ["GET /capabilities", "GET /pairing", "POST /restart"]}`,
+built from the routes this dashboard process mounted (method, then the path below
+`/api/plugins/hermex-push`). Hermex shows a feature that needs a plugin route only where the route
+is listed, since a POST can't be probed without running it. The read has no side effects, never
+answers 409 and creates no keys, so a host that uses the plugin without push set up can still
+answer it. A 404 means an older plugin or one the dashboard hasn't loaded since it was installed.
+
 ## Restart
 
 `POST /api/plugins/hermex-push/restart` (dashboard auth, plugin 0.4.0 and later) answers
@@ -136,7 +146,7 @@ for the new `plugin_version`.
 - `hermex_push/keys.py` key files; `privacy.py` sealing and keyed ids; `payload.py` event shapes;
   `sources.py` coarse source and skip rules; `progress.py` coalescing; `relay.py` background POST;
   `hooks.py` hook callbacks; `adapter.py` the send-only platform adapter.
-- `dashboard/plugin_api.py` the pairing and restart routes; `dashboard/dist/index.js` a no-op the SPA
+- `dashboard/plugin_api.py` the capabilities, pairing and restart routes; `dashboard/dist/index.js` a no-op the SPA
   requires.
 - `hermex_push_tests/` pytest suite; `fixtures/sealed_preview.json` is a fixed-key vector the
   phone's Notification Service Extension tests can decrypt as well.

@@ -12,7 +12,7 @@ RELAY_URL_ENV = "HERMEX_PUSH_RELAY_URL"
 # Bump on every merged change under plugin/ (patch for fixes, minor for features), together with
 # plugin.yaml, pyproject.toml and dashboard/manifest.json; a test keeps the four in step. The
 # pairing route reports this loaded value, so Hermex can tell an outdated or not-yet-restarted host.
-PLUGIN_VERSION = "0.4.0"
+PLUGIN_VERSION = "0.5.0"
 
 # The identifier Hermex sends to ``POST /api/dashboard/agent-plugins/install``. hermes-agent
 # splits it at ``.git/`` into the clone URL and the ``plugin`` subdirectory.

@@ -1,4 +1,4 @@
-"""Pairing and restart routes, mounted by the dashboard at ``/api/plugins/hermex-push/`` behind
+"""Capabilities, pairing and restart routes, mounted by the dashboard at ``/api/plugins/hermex-push/`` behind
 dashboard auth. Hermex calls ``GET /pairing`` once with the user's dashboard login and stores the
 result in the Keychain; no key is ever typed.
 
@@ -7,6 +7,12 @@ Response: ``{"relay_url": str, "install_key": <64 hex>, "preview_key": <base64 o
 is the code this process loaded, which lags the files on disk until the dashboard restarts; a
 response without it comes from a plugin older than 0.2.0. 409 when ``HERMEX_PUSH_RELAY_URL`` is
 unset, because a pairing without a relay could never deliver.
+
+``GET /capabilities`` (hermex#1235) lists the routes this process mounted, so Hermex shows a
+feature only where its route exists; a POST can't be probed without running it. Response:
+``{"plugin_version": "<semver>", "routes": ["GET /capabilities", "GET /pairing", "POST /restart"]}``.
+It has no side effects and never answers 409, so a host that uses the plugin without push set up
+can still be read. A 404 on it means an older plugin or one the dashboard hasn't loaded.
 
 ``POST /restart`` (hermex#934) restarts the dashboard process this route runs in, so a plugin
 update Hermex installed is loaded without a trip to the host.
@@ -40,6 +46,17 @@ _log = logging.getLogger(__name__)
 RESTART_DELAY_S = 1.0
 _restart_lock = threading.Lock()
 _restart_pending = False
+
+
+@router.get("/capabilities")
+def get_capabilities() -> JSONResponse:
+    """Built from ``router.routes``, so the list can't drift from what is mounted: each entry is a
+    method and the path relative to the plugin's mount, sorted for a stable answer."""
+    routes = sorted(f"{method} {route.path}" for route in router.routes for method in getattr(route, "methods", ()))
+    return JSONResponse(
+        {"plugin_version": PLUGIN_VERSION, "routes": routes},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/pairing")
