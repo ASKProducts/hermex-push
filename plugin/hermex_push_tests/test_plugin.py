@@ -103,7 +103,9 @@ def test_capabilities_lists_the_mounted_routes_without_touching_the_keys(hermes_
     assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
     body = response.json()
     assert body["plugin_version"] == PLUGIN_VERSION
-    assert {"GET /capabilities", "GET /pairing", "POST /restart"} <= set(body["routes"])
+    assert {
+        "GET /capabilities", "GET /pairing", "POST /restart", "POST /git/fetch", "POST /git/pull", "POST /git/branch",
+    } <= set(body["routes"])
     assert not (hermes_home / "plugin-data").exists(), "Reading capabilities must not create pairing keys"
 
 

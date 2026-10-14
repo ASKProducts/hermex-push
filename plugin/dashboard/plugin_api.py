@@ -1,4 +1,4 @@
-"""Capabilities, pairing and restart routes, mounted by the dashboard at ``/api/plugins/hermex-push/`` behind
+"""Capabilities, pairing, restart and git routes, mounted by the dashboard at ``/api/plugins/hermex-push/`` behind
 dashboard auth. Hermex calls ``GET /pairing`` once with the user's dashboard login and stores the
 result in the Keychain; no key is ever typed.
 
@@ -16,10 +16,20 @@ can still be read. A 404 on it means an older plugin or one the dashboard hasn't
 
 ``POST /restart`` (hermex#934) restarts the dashboard process this route runs in, so a plugin
 update Hermex installed is loaded without a trip to the host.
+
+``POST /git/fetch {path, remote?}``, ``POST /git/pull {path, remote?}`` and
+``POST /git/branch {path, name, start?}`` (hermex#1236) are the git writes the host's own routes
+lack: ``fetch --prune``, a fast-forward-only ``pull``, and ``switch -c`` (create and switch).
+They answer as the host's git routes do: 200 ``{"ok": true, "message": <git's output>}``, or 400
+``{"detail": ...}``. Each runs in-process through the host's own hardening: the path through
+``hermes_cli.web_server_files._fs_path`` and git through ``hermes_cli.web_git._git`` (hardened
+argv, non-interactive env). An option-like ``remote`` or ``start``, and a ``name`` the host's
+branch sanitizer would rewrite, are refused before git runs.
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import os
@@ -29,6 +39,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 _ROOT = str(Path(__file__).resolve().parents[1])
 if _ROOT not in sys.path:
@@ -46,6 +57,8 @@ _log = logging.getLogger(__name__)
 RESTART_DELAY_S = 1.0
 _restart_lock = threading.Lock()
 _restart_pending = False
+# A fetch or pull talks to the remote, so it gets longer than the host's 30 s for local git.
+GIT_REMOTE_TIMEOUT_S = 60
 
 
 @router.get("/capabilities")
@@ -124,3 +137,59 @@ def _reexec() -> None:
             sys.modules["tools.environments.base"]._exit_fenced = False
         with _restart_lock:
             _restart_pending = False
+
+
+class GitSyncBody(BaseModel):
+    path: str
+    remote: str | None = None
+
+
+class GitBranchBody(BaseModel):
+    path: str
+    name: str
+    start: str | None = None
+
+
+@router.post("/git/fetch")
+async def git_fetch(body: GitSyncBody) -> JSONResponse:
+    return await _run_git(body.path, ["fetch", "--prune", "--no-recurse-submodules", *_operand(body.remote)])
+
+
+@router.post("/git/pull")
+async def git_pull(body: GitSyncBody) -> JSONResponse:
+    """Fast-forward only: a merge commit is nothing anyone can edit from a phone."""
+    return await _run_git(body.path, ["pull", "--ff-only", "--no-recurse-submodules", *_operand(body.remote)])
+
+
+@router.post("/git/branch")
+async def git_branch(body: GitBranchBody) -> JSONResponse:
+    """Creates ``name`` from ``start`` (HEAD when absent) and switches to it. Uncommitted changes
+    come along, as ``git switch -c`` carries them."""
+    start = _operand(body.start)
+    from hermes_cli.web_git import _sanitize_branch
+
+    if not body.name or _sanitize_branch(body.name) != body.name:
+        raise HTTPException(status_code=400, detail="Invalid branch name.")
+    return await _run_git(body.path, ["switch", "-c", body.name, *start])
+
+
+def _operand(value: str | None) -> list[str]:
+    """An optional ref or remote as git's last argument; one git would read as an option is refused."""
+    if not value:
+        return []
+    if value.startswith("-"):
+        raise HTTPException(status_code=400, detail="Invalid git argument.")
+    return [value]
+
+
+async def _run_git(path: str, args: list[str]) -> JSONResponse:
+    """Runs ``git args`` in ``path`` off the event loop, through the host's path and git hardening.
+    A non-zero exit is a 400 carrying git's stderr, as the host's ``_git_op`` answers."""
+    from hermes_cli.web_git import _git
+    from hermes_cli.web_server_files import _fs_path
+
+    cwd = str(_fs_path(path))
+    code, out, err = await asyncio.to_thread(_git, cwd, args, timeout=GIT_REMOTE_TIMEOUT_S)
+    if code != 0:
+        raise HTTPException(status_code=400, detail=err.strip() or f"git {args[0]} failed")
+    return JSONResponse({"ok": True, "message": (out or err).strip()}, headers={"Cache-Control": "no-store"})

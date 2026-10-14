@@ -1,7 +1,7 @@
 name: hermex-push
 label: Hermex
 kind: platform
-version: 0.5.0
+version: 0.6.0
 description: >
   Push notifications for the Hermex iPhone app. On each turn boundary the
   plugin posts a sealed event (AES-256-GCM, encrypted on this host) to a
