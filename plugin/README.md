@@ -122,6 +122,25 @@ is listed, since a POST can't be probed without running it. The read has no side
 answers 409 and creates no keys, so a host that uses the plugin without push set up can still
 answer it. A 404 means an older plugin or one the dashboard hasn't loaded since it was installed.
 
+## Provider quota
+
+`GET /api/plugins/hermex-push/provider-quota?provider=&profile=&refresh=` (dashboard auth, plugin 0.7.0 and later) answers
+one provider's account limits for a Profile in hermes-webui's `/api/provider/quota` envelope, so
+Hermex's Usage screen reads both servers the same way
+([hermex#1237](https://github.com/uzairansaruzi/hermex/issues/1237)):
+`{"ok", "provider", "display_name", "supported", "status", "quota": null, "message"}`, plus `label`
+and `account_limits` (webui's serialized account-usage snapshot) when there are limits. The limits
+come from hermes-agent's `fetch_account_usage`, the source of `/usage`'s account lines, run on a
+worker thread inside the Profile's config and secret scope, so the credentials are that Profile's.
+An omitted `provider` is the Profile's `model.provider`; an omitted `profile` is the dashboard's own.
+
+`status` is `available` for a snapshot with limits, `unavailable` for one with an
+`unavailable_reason` or for no snapshot, and `unsupported` for a provider with neither a built-in
+fetcher (`openai-codex`, `anthropic`, `openrouter`) nor a provider plugin hook. `no_key` and
+`invalid_key` never appear: the agent's fetchers answer the same for both and for a network
+failure. A good answer is cached for 45 s per Profile and provider (64 entries at most);
+`refresh=1` skips the cached read, and a failed read never replaces a good entry.
+
 ## Restart
 
 `POST /api/plugins/hermex-push/restart` (dashboard auth, plugin 0.4.0 and later) answers
@@ -168,7 +187,8 @@ would rewrite, are refused with 400 before git runs.
 - `hermex_push/keys.py` key files; `privacy.py` sealing and keyed ids; `payload.py` event shapes;
   `sources.py` coarse source and skip rules; `progress.py` coalescing; `relay.py` background POST;
   `hooks.py` hook callbacks; `adapter.py` the send-only platform adapter.
-- `dashboard/plugin_api.py` the capabilities, pairing, restart and git routes; `dashboard/dist/index.js` a no-op the SPA
+- `dashboard/plugin_api.py` the capabilities, pairing, restart, git and provider-quota routes,
+  with `hermex_push/quota.py` behind the last; `dashboard/dist/index.js` a no-op the SPA
   requires.
 - `hermex_push_tests/` pytest suite; `fixtures/sealed_preview.json` is a fixed-key vector the
   phone's Notification Service Extension tests can decrypt as well.
@@ -186,8 +206,9 @@ uv venv .venv && uv pip install --python .venv/bin/python pytest cryptography fa
 .venv/bin/python -m pytest plugin -q
 ```
 
-`test_restart_needs_the_dashboard_sign_in` and the git route tests that run git need
-hermes-agent importable; they skip in the venv above. To run them against hermes-agent itself, use a hermes-agent virtualenv, for example
+`test_restart_needs_the_dashboard_sign_in`, the git route tests that run git, and
+`test_the_agent_host_knows_the_built_in_fetchers` need hermes-agent importable; they skip in the
+venv above. To run them against hermes-agent itself, use a hermes-agent virtualenv, for example
 `uv run --no-project --python <hermes-agent venv>/bin/python --with pytest python -m pytest plugin -q`.
 
 Every merged change under `plugin/` bumps `PLUGIN_VERSION` in `hermex_push/__init__.py` (patch

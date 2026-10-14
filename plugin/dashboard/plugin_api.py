@@ -1,4 +1,4 @@
-"""Capabilities, pairing, restart and git routes, mounted by the dashboard at ``/api/plugins/hermex-push/`` behind
+"""Capabilities, pairing, restart, git and provider-quota routes, mounted by the dashboard at ``/api/plugins/hermex-push/`` behind
 dashboard auth. Hermex calls ``GET /pairing`` once with the user's dashboard login and stores the
 result in the Keychain; no key is ever typed.
 
@@ -25,6 +25,9 @@ They answer as the host's git routes do: 200 ``{"ok": true, "message": <git's ou
 ``hermes_cli.web_server_files._fs_path`` and git through ``hermes_cli.web_git._git`` (hardened
 argv, non-interactive env). An option-like ``remote`` or ``start``, and a ``name`` the host's
 branch sanitizer would rewrite, are refused before git runs.
+
+``GET /provider-quota?provider=&profile=&refresh=`` (hermex#1237) answers one provider's account
+limits for a Profile in hermes-webui's ``/api/provider/quota`` envelope (``hermex_push.quota``).
 """
 
 from __future__ import annotations
@@ -45,7 +48,7 @@ _ROOT = str(Path(__file__).resolve().parents[1])
 if _ROOT not in sys.path:
     sys.path.append(_ROOT)
 
-from hermex_push import PLATFORM_NAME, PLUGIN_VERSION, RELAY_URL_ENV  # noqa: E402
+from hermex_push import PLATFORM_NAME, PLUGIN_VERSION, RELAY_URL_ENV, quota  # noqa: E402
 from hermex_push.hooks import relay_url_from_env  # noqa: E402
 from hermex_push.keys import load_or_create_keys  # noqa: E402
 from hermex_push.payload import PAYLOAD_VERSION  # noqa: E402
@@ -59,6 +62,7 @@ _restart_lock = threading.Lock()
 _restart_pending = False
 # A fetch or pull talks to the remote, so it gets longer than the host's 30 s for local git.
 GIT_REMOTE_TIMEOUT_S = 60
+_quota_cache = quota.QuotaCache()
 
 
 @router.get("/capabilities")
@@ -89,6 +93,16 @@ def get_pairing() -> JSONResponse:
         },
         headers={"Cache-Control": "no-store"},
     )
+
+
+@router.get("/provider-quota")
+async def get_provider_quota(provider: str = "", profile: str = "", refresh: bool = False) -> JSONResponse:
+    """``provider`` defaults to the Profile's configured one, and ``profile`` to the dashboard's own.
+    Served from a 45 s cache unless ``refresh`` is set. The envelope's ``status``, not the HTTP
+    status, says whether limits came back."""
+    body = await quota.in_profile_scope(
+        profile, lambda: quota.provider_quota(quota.AGENT, _quota_cache, profile, provider, refresh))
+    return JSONResponse(body, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/restart", status_code=202)
