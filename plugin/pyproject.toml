@@ -1,6 +1,6 @@
 [project]
 name = "hermex-push-plugin"
-version = "0.7.0"
+version = "0.8.0"
 description = "hermes-agent platform plugin that sends sealed push events to a hermex-push relay"
 requires-python = ">=3.10"
 dependencies = ["cryptography>=42"]

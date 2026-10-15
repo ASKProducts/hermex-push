@@ -181,15 +181,48 @@ hardening: the path through `hermes_cli.web_server_files._fs_path`, git through
 a 60 s timeout. An option-like `remote` or `start`, and a `name` the host's `_sanitize_branch`
 would rewrite, are refused with 400 before git runs.
 
+## Terminal (dashboard auth, plugin 0.8.0 and later)
+
+A plain host shell for an existing chat, running as the dashboard's OS user, outside
+agent approvals. This is a remote login; Profile/chat separation is not a filesystem sandbox.
+
+- `WS /api/plugins/hermex-push/terminal/shell?session_id=&shell_profile=&cols=&rows=&ticket=`
+  opens or reattaches. `session_id` must exist in the selected Profile; `shell_profile` defaults
+  to the dashboard Profile. Multiplexed hosts require an explicit Profile. Dimensions default
+  to 80×24 and accept 1…2000 columns, 1…1000 rows.
+- `GET /api/plugins/hermex-push/terminal/shell/status?session_id=&profile=` returns
+  `{"running": bool}` with `Cache-Control: no-store`, including idle expiry.
+- Gate on `WS /terminal/shell` in `/capabilities`. Isolated plugin hosts omit it because
+  Hermes's plugin-host proxy forwards HTTP only.
+
+The dashboard's pre-accept terminal gate checks a fresh single-use `/api/auth/ws-ticket`,
+Host/Origin and peer policy. Status uses dashboard HTTP login. The shell starts in the chat's
+stored cwd; an empty cwd uses the host default. A missing folder returns an error.
+`$SHELL -i` (fallback `/bin/sh`) receives an allowlisted login environment plus terminal type
+and cwd. `HERMES_HOME` is deliberately omitted: a manual `hermes` command uses the OS user's
+normal default, independently of the chat's Profile. Startup files retain their normal access.
+
+Output is binary; input accepts bytes or UTF-8 text. `ESC[RESIZE:<cols>;<rows>]` resizes.
+Each attach sends `{"type":"replay","state":"start","unseen":N}`, a bounded binary tail,
+then `{"type":"replay","state":"end"}`. `unseen` counts the tail's suffix never delivered to
+any viewer. Reset the emulator for replay, suppress query answers for the preceding prefix,
+and answer queries in the unseen suffix and live output. Unknown text controls are ignored.
+One shell per resolved Profile home/chat survives disconnect for 30 minutes, with a 1 MiB tail
+and a 16-shell registry. Reattach resizes the PTY to request a full-screen application's redraw.
+
+Close codes: 4400 invalid chat/Profile/size; 4401 credential; 4403 Host/Origin; 4404 embedded
+chat disabled; 4408 peer policy; 4409 replaced viewer; 4410 shell exited; 1011 unavailable PTY;
+1013 capacity/input stall. Pre-accept rejection becomes HTTP 403 on uvicorn.
+Tested with Hermes commit `ca6782850432927f33df4775cb6dd45bb51460d2` (pre-0.21.5) and v0.22.0.
+
 ## Layout
 
 - `__init__.py` registers the `hermex` platform and the hooks.
 - `hermex_push/keys.py` key files; `privacy.py` sealing and keyed ids; `payload.py` event shapes;
   `sources.py` coarse source and skip rules; `progress.py` coalescing; `relay.py` background POST;
   `hooks.py` hook callbacks; `adapter.py` the send-only platform adapter.
-- `dashboard/plugin_api.py` the capabilities, pairing, restart, git and provider-quota routes,
-  with `hermex_push/quota.py` behind the last; `dashboard/dist/index.js` a no-op the SPA
-  requires.
+- `dashboard/plugin_api.py` dashboard routes; `hermex_push/quota.py` and `terminal.py` helpers;
+  `dashboard/dist/index.js` the SPA's required no-op.
 - `hermex_push_tests/` pytest suite; `fixtures/sealed_preview.json` is a fixed-key vector the
   phone's Notification Service Extension tests can decrypt as well.
 
@@ -210,6 +243,9 @@ uv venv .venv && uv pip install --python .venv/bin/python pytest cryptography fa
 `test_the_agent_host_knows_the_built_in_fetchers` need hermes-agent importable; they skip in the
 venv above. To run them against hermes-agent itself, use a hermes-agent virtualenv, for example
 `uv run --no-project --python <hermes-agent venv>/bin/python --with pytest python -m pytest plugin -q`.
+
+Terminal tests also need Hermes and POSIX PTYs. Their fixture isolates HOME/HERMES_HOME
+and closes every child on shutdown.
 
 Every merged change under `plugin/` bumps `PLUGIN_VERSION` in `hermex_push/__init__.py` (patch
 for fixes, minor for features) along with `plugin.yaml`, `pyproject.toml` and

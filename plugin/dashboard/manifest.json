@@ -3,7 +3,7 @@
   "label": "Hermex Push",
   "description": "Pairing and restart endpoints for the Hermex iPhone app. No dashboard tab.",
   "icon": "Smartphone",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "tab": { "hidden": true },
   "entry": "dist/index.js",
   "api": "plugin_api.py"

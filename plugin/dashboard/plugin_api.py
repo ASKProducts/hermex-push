@@ -1,4 +1,4 @@
-"""Capabilities, pairing, restart, git and provider-quota routes, mounted by the dashboard at ``/api/plugins/hermex-push/`` behind
+"""Capabilities, pairing, restart, git, quota and terminal routes, mounted at ``/api/plugins/hermex-push/`` behind
 dashboard auth. Hermex calls ``GET /pairing`` once with the user's dashboard login and stores the
 result in the Keychain; no key is ever typed.
 
@@ -28,6 +28,7 @@ branch sanitizer would rewrite, are refused before git runs.
 
 ``GET /provider-quota?provider=&profile=&refresh=`` (hermex#1237) answers one provider's account
 limits for a Profile in hermes-webui's ``/api/provider/quota`` envelope (``hermex_push.quota``).
+
 """
 
 from __future__ import annotations
@@ -40,7 +41,8 @@ import sys
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket
+from starlette.routing import WebSocketRoute
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -48,12 +50,23 @@ _ROOT = str(Path(__file__).resolve().parents[1])
 if _ROOT not in sys.path:
     sys.path.append(_ROOT)
 
-from hermex_push import PLATFORM_NAME, PLUGIN_VERSION, RELAY_URL_ENV, quota  # noqa: E402
+from hermex_push import PLATFORM_NAME, PLUGIN_VERSION, RELAY_URL_ENV, quota, terminal  # noqa: E402
 from hermex_push.hooks import relay_url_from_env  # noqa: E402
 from hermex_push.keys import load_or_create_keys  # noqa: E402
 from hermex_push.payload import PAYLOAD_VERSION  # noqa: E402
 
-router = APIRouter()
+_shells = terminal.Shells()
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(app):
+    try:
+        yield
+    finally:
+        await _shells.close()
+
+
+router = APIRouter(lifespan=_lifespan)
 _log = logging.getLogger(__name__)
 
 # Long enough for the 202 to reach the phone before the process goes away.
@@ -69,11 +82,34 @@ _quota_cache = quota.QuotaCache()
 def get_capabilities() -> JSONResponse:
     """Built from ``router.routes``, so the list can't drift from what is mounted: each entry is a
     method and the path relative to the plugin's mount, sorted for a stable answer."""
-    routes = sorted(f"{method} {route.path}" for route in router.routes for method in getattr(route, "methods", ()))
+    try:
+        from hermes_cli.plugin_isolation import isolation_mode, ISOLATION_HOST, HOST_PROCESS_ENV
+        sockets = os.environ.get(HOST_PROCESS_ENV) != "1" and isolation_mode() != ISOLATION_HOST
+    except ImportError:
+        sockets = True
+    routes = sorted(
+        f"{method} {route.path}"
+        for route in router.routes
+        if sockets or not isinstance(route, WebSocketRoute)
+        for method in (("WS",) if isinstance(route, WebSocketRoute) else getattr(route, "methods", ()))
+    )
     return JSONResponse(
         {"plugin_version": PLUGIN_VERSION, "routes": routes},
         headers={"Cache-Control": "no-store"},
     )
+
+
+async def terminal_shell(ws: WebSocket) -> None:
+    await _shells.connect(ws)
+
+
+# Starlette routes enter the WS gate before FastAPI's HTTP Profile dependencies.
+router.add_websocket_route("/terminal/shell", terminal_shell)
+
+
+@router.get("/terminal/shell/status")
+async def terminal_shell_status(session_id: str = "", profile: str = "") -> JSONResponse:
+    return JSONResponse(await _shells.status(session_id, profile), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/pairing")

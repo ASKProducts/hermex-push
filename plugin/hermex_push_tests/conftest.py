@@ -16,6 +16,9 @@ def hermes_home(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
+    # Hermes also resolves the root from the OS user's home. Isolate both,
+    # including when pytest's temp directory lives beneath the real ~/.hermes.
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("HERMEX_PUSH_RELAY_URL", raising=False)
     return home
 
