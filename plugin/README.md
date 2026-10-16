@@ -122,6 +122,13 @@ is listed, since a POST can't be probed without running it. The read has no side
 answers 409 and creates no keys, so a host that uses the plugin without push set up can still
 answer it. A 404 means an older plugin or one the dashboard hasn't loaded since it was installed.
 
+## Terminal
+
+The dashboard also mounts a plain shell for each chat. See
+[`hermex_push/terminal/README.md`](hermex_push/terminal/README.md) for the wire contract,
+login, folder/environment rules and shell lifetime. This requires Hermes's PTY modules;
+installing the plugin grants authenticated dashboard users shell access as the dashboard user.
+
 ## Provider quota
 
 `GET /api/plugins/hermex-push/provider-quota?provider=&profile=&refresh=` (dashboard auth, plugin 0.7.0 and later) answers

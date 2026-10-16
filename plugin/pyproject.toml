@@ -6,7 +6,7 @@ requires-python = ">=3.10"
 dependencies = ["cryptography>=42"]
 
 [project.optional-dependencies]
-dev = ["pytest", "fastapi", "httpx"]
+dev = ["pytest", "pytest-timeout", "fastapi", "httpx"]
 
 [tool.pytest.ini_options]
 testpaths = ["hermex_push_tests"]
