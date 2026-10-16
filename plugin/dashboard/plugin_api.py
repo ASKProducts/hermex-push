@@ -53,7 +53,10 @@ from hermex_push.hooks import relay_url_from_env  # noqa: E402
 from hermex_push.keys import load_or_create_keys  # noqa: E402
 from hermex_push.payload import PAYLOAD_VERSION  # noqa: E402
 
+from hermex_push.voice.routes import router as voice_router  # noqa: E402
+
 router = APIRouter()
+router.include_router(voice_router)
 _log = logging.getLogger(__name__)
 
 # Long enough for the 202 to reach the phone before the process goes away.
