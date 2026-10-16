@@ -41,6 +41,7 @@ import threading
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from starlette.routing import WebSocketRoute
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -52,8 +53,10 @@ from hermex_push import PLATFORM_NAME, PLUGIN_VERSION, RELAY_URL_ENV, quota  # n
 from hermex_push.hooks import relay_url_from_env  # noqa: E402
 from hermex_push.keys import load_or_create_keys  # noqa: E402
 from hermex_push.payload import PAYLOAD_VERSION  # noqa: E402
+from hermex_push.terminal.routes import router as terminal_router  # noqa: E402
 
 router = APIRouter()
+router.include_router(terminal_router)
 _log = logging.getLogger(__name__)
 
 # Long enough for the 202 to reach the phone before the process goes away.
@@ -67,9 +70,17 @@ _quota_cache = quota.QuotaCache()
 
 @router.get("/capabilities")
 def get_capabilities() -> JSONResponse:
-    """Built from ``router.routes``, so the list can't drift from what is mounted: each entry is a
-    method and the path relative to the plugin's mount, sorted for a stable answer."""
-    routes = sorted(f"{method} {route.path}" for route in router.routes for method in getattr(route, "methods", ()))
+    """Advertise terminal routes only where the dashboard can carry their WebSocket."""
+    try:
+        from hermes_cli.plugin_isolation import isolation_mode, ISOLATION_HOST, HOST_PROCESS_ENV
+        terminal_available = os.environ.get(HOST_PROCESS_ENV) != "1" and isolation_mode() != ISOLATION_HOST
+    except ImportError:
+        terminal_available = True
+    routes = sorted({
+        f"{method} {route.path}" for route in [*router.routes, *terminal_router.routes]
+        if terminal_available or not getattr(route, "path", "").startswith("/terminal/")
+        for method in (("WS",) if isinstance(route, WebSocketRoute) else getattr(route, "methods", ()))
+    })
     return JSONResponse(
         {"plugin_version": PLUGIN_VERSION, "routes": routes},
         headers={"Cache-Control": "no-store"},
